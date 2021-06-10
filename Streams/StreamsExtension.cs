@@ -1,6 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Streams
 {
@@ -17,10 +21,19 @@ namespace Streams
         public static int ByteCopyWithFileStream(string sourcePath, string destinationPath)
         {
             InputValidation(sourcePath, destinationPath);
-            
-            throw new NotImplementedException();
+
+            using FileStream sourceStream = new FileStream(sourcePath, FileMode.Open),
+            destinationStream = new FileStream(destinationPath, FileMode.OpenOrCreate);
+            byte oneByte;
+            for (int i = 0; i < sourceStream.Length; i++)
+            {
+                oneByte = (byte)sourceStream.ReadByte();
+                destinationStream.WriteByte(oneByte);
+            }
+
+            return (int)destinationStream.Length;
         }
-        
+
         /// <summary>
         /// Implements the logic of block copying the contents of the source text file using FileStream buffer.
         /// </summary>
@@ -32,10 +45,17 @@ namespace Streams
         public static int BlockCopyWithFileStream(string sourcePath, string destinationPath)
         {
             InputValidation(sourcePath, destinationPath);
-            
-            throw new NotImplementedException();
+
+            using FileStream source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read),
+            destination = new FileStream(destinationPath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+
+            byte[] buffer = new byte[source.Length];
+            int numBytesRead = source.Read(buffer, 0, (int)source.Length);
+            destination.Write(buffer);
+
+            return numBytesRead;
         }
-        
+
         /// <summary>
         /// Implements the logic of block copying the contents of the source text file using FileStream and class-decorator BufferedStream.
         /// </summary>
@@ -48,9 +68,17 @@ namespace Streams
         {
             InputValidation(sourcePath, destinationPath);
 
-            throw new NotImplementedException();
+            using Stream source = new FileStream(sourcePath, FileMode.Open, FileAccess.Read),
+                destination = new FileStream(destinationPath, FileMode.OpenOrCreate, FileAccess.Write),
+                bufferStream = new BufferedStream(destination);
+
+            byte[] bufferArr = new byte[source.Length];
+            int numBytesRead = source.Read(bufferArr);
+            bufferStream.Write(bufferArr);
+
+            return numBytesRead;
         }
-        
+
         /// <summary>
         /// Implements the logic of line-by-line copying of the contents of the source text file
         /// using FileStream and classes-adapters  StreamReader/StreamWriter
@@ -64,7 +92,23 @@ namespace Streams
         {
             InputValidation(sourcePath, destinationPath);
 
-            throw new NotImplementedException();
+            using var sr = new StreamReader(sourcePath);
+            using var sw = new StreamWriter(destinationPath);
+            int count = 0;
+            string line;
+            while ((line = sr.ReadLine()) != null)
+            {    
+                if (sr.Peek() < 0)
+                {
+                    sw.Write(line);
+                    count++;
+                    break;
+                }
+                sw.WriteLine(line);
+                count++;
+            }
+
+            return count;
         }
 
         /// <summary>
@@ -79,7 +123,18 @@ namespace Streams
         {
             InputValidation(sourcePath);
 
-            throw new NotImplementedException();
+            Encoding srsEnc = Encoding.GetEncoding(encoding);
+            Encoding dstEnc = Encoding.Unicode;
+            using StreamReader sr = new StreamReader(sourcePath, srsEnc);
+
+            byte[] srsBytes = srsEnc.GetBytes(sr.ReadToEnd());
+            byte[] resBytes = Encoding.Convert(srsEnc, dstEnc, srsBytes);
+
+            char[] resChars = new char[dstEnc.GetCharCount(resBytes)];
+            dstEnc.GetChars(resBytes, 0, resBytes.Length, resChars, 0);
+            string result = new string(resChars);
+
+            return result;
         }
 
         /// <summary>
@@ -94,9 +149,16 @@ namespace Streams
         {
             InputValidation(sourcePath);
 
-            throw new NotImplementedException();
+            Stream stream = new FileStream(sourcePath, FileMode.Open);
+
+            return method switch
+            {
+                DecompressionMethods.GZip => new GZipStream(stream, CompressionMode.Decompress),
+                DecompressionMethods.Deflate => new DeflateStream(stream, CompressionMode.Decompress),
+                _ => stream,
+            };
         }
-        
+
         /// <summary>
         /// Calculates hash of stream using specified algorithm.
         /// </summary>
@@ -107,39 +169,48 @@ namespace Streams
         /// <returns>Hash.</returns>
         public static string CalculateHash(this Stream stream, string hashAlgorithmName)
         {
-            throw new NotImplementedException();
-        }
-        
-        private static void InputValidation(string sourcePath, string destinationPath)
-        {
-            if (string.IsNullOrWhiteSpace(sourcePath))
+            try
             {
-                throw new ArgumentException($"{nameof(sourcePath)} cannot be null or empty or whitespace.", nameof(sourcePath));
+                var hashAlgorithm = HashAlgorithm.Create(hashAlgorithmName);
+                byte[] arr = hashAlgorithm.ComputeHash(stream);
+                return BitConverter.ToString(arr).Replace("-", String.Empty);
             }
-            
-            if (!File.Exists(sourcePath))
+            catch
             {
-                throw new FileNotFoundException($"File '{sourcePath}' not found. Parameter name: {nameof(sourcePath)}.");
+                throw new ArgumentException($"Algorithm Is Not Supported: {nameof(hashAlgorithmName)}");
+            }
+        }
+
+            private static void InputValidation(string sourcePath, string destinationPath)
+            {
+                if (string.IsNullOrWhiteSpace(sourcePath))
+                {
+                    throw new ArgumentException($"{nameof(sourcePath)} cannot be null or empty or whitespace.", nameof(sourcePath));
+                }
+
+                if (!File.Exists(sourcePath))
+                {
+                    throw new FileNotFoundException($"File '{sourcePath}' not found. Parameter name: {nameof(sourcePath)}.");
+                }
+
+                if (string.IsNullOrWhiteSpace(destinationPath))
+                {
+                    throw new ArgumentException($"{nameof(destinationPath)} cannot be null or empty or whitespace",
+                        nameof(destinationPath));
+                }
             }
 
-            if (string.IsNullOrWhiteSpace(destinationPath))
+            private static void InputValidation(string sourcePath)
             {
-                throw new ArgumentException($"{nameof(destinationPath)} cannot be null or empty or whitespace",
-                    nameof(destinationPath));
-            }
-        }
-        
-        private static void InputValidation(string sourcePath)
-        {
-            if (string.IsNullOrWhiteSpace(sourcePath))
-            {
-                throw new ArgumentException($"{nameof(sourcePath)} cannot be null or empty or whitespace.", nameof(sourcePath));
-            }
-            
-            if (!File.Exists(sourcePath))
-            {
-                throw new FileNotFoundException($"File '{sourcePath}' not found. Parameter name: {nameof(sourcePath)}.");
+                if (string.IsNullOrWhiteSpace(sourcePath))
+                {
+                    throw new ArgumentException($"{nameof(sourcePath)} cannot be null or empty or whitespace.", nameof(sourcePath));
+                }
+
+                if (!File.Exists(sourcePath))
+                {
+                    throw new FileNotFoundException($"File '{sourcePath}' not found. Parameter name: {nameof(sourcePath)}.");
+                }
             }
         }
     }
-}
